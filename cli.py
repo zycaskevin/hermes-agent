@@ -2158,6 +2158,44 @@ def _get_plugin_cmd_handler_names() -> set:
         return set()
 
 
+def _call_plugin_command_handler(handler, raw_args: str, **source_context):
+    """Call a plugin slash-command handler with optional source context.
+
+    Historical plugin command handlers accepted only ``raw_args``. Newer
+    handlers may opt into keyword-only context such as ``source_platform``.
+    Inspect the callable first so legacy handlers keep working, while handlers
+    that declare context parameters (or ``**kwargs``) receive them.
+    """
+    kwargs = {k: v for k, v in source_context.items() if v is not None}
+    if not kwargs:
+        return handler(raw_args)
+
+    try:
+        import inspect
+        signature = inspect.signature(handler)
+    except (TypeError, ValueError):
+        # Some callable objects do not expose a signature. Prefer the richer
+        # call shape; plugin command dispatch will surface any real TypeError.
+        return handler(raw_args, **kwargs)
+
+    params = signature.parameters.values()
+    accepts_var_kwargs = any(p.kind == p.VAR_KEYWORD for p in params)
+    accepted = {}
+    if accepts_var_kwargs:
+        accepted = kwargs
+    else:
+        for param in params:
+            if param.name in kwargs and param.kind in (
+                param.POSITIONAL_OR_KEYWORD,
+                param.KEYWORD_ONLY,
+            ):
+                accepted[param.name] = kwargs[param.name]
+
+    if accepted:
+        return handler(raw_args, **accepted)
+    return handler(raw_args)
+
+
 def _parse_skills_argument(skills: str | list[str] | tuple[str, ...] | None) -> list[str]:
     """Normalize a CLI skills flag into a deduplicated list of skill identifiers."""
     if not skills:
@@ -7125,7 +7163,11 @@ class HermesCLI:
                     user_args = cmd_original[len(base_cmd):].strip()
                     try:
                         result = resolve_plugin_command_result(
-                            plugin_handler(user_args)
+                            _call_plugin_command_handler(
+                                plugin_handler,
+                                user_args,
+                                source_platform="cli",
+                            )
                         )
                         if result:
                             _cprint(str(result))

@@ -119,6 +119,45 @@ class TestCLIQuickCommands:
             printed = " ".join(str(c) for c in mock_cprint.call_args_list)
             assert "unknown command" in printed.lower()
 
+    def test_plugin_command_receives_cli_source_platform(self):
+        """CLI plugin slash dispatch passes source_platform='cli' when accepted."""
+        cli = self._make_cli({})
+        seen = {}
+
+        def handler(raw_args, *, source_platform=None):
+            seen["raw_args"] = raw_args
+            seen["source_platform"] = source_platform
+            return "plugin-ok"
+
+        with patch("cli._get_plugin_cmd_handler_names", return_value={"plug"}), \
+             patch("hermes_cli.plugins.get_plugin_command_handler", lambda name: handler if name == "plug" else None), \
+             patch("hermes_cli.plugins.resolve_plugin_command_result", lambda result: result), \
+             patch("cli._cprint") as mock_cprint:
+            result = cli.process_command("/plug hello world")
+
+        assert result is True
+        assert seen == {"raw_args": "hello world", "source_platform": "cli"}
+        mock_cprint.assert_called_once_with("plugin-ok")
+
+    def test_plugin_command_legacy_single_arg_handler_still_works(self):
+        """Legacy plugin command handlers without context kwargs remain valid."""
+        cli = self._make_cli({})
+        seen = {}
+
+        def handler(raw_args):
+            seen["raw_args"] = raw_args
+            return "legacy-ok"
+
+        with patch("cli._get_plugin_cmd_handler_names", return_value={"legacy"}), \
+             patch("hermes_cli.plugins.get_plugin_command_handler", lambda name: handler if name == "legacy" else None), \
+             patch("hermes_cli.plugins.resolve_plugin_command_result", lambda result: result), \
+             patch("cli._cprint") as mock_cprint:
+            result = cli.process_command("/legacy old args")
+
+        assert result is True
+        assert seen == {"raw_args": "old args"}
+        mock_cprint.assert_called_once_with("legacy-ok")
+
     def test_timeout_shows_error(self):
         cli = self._make_cli({"slow": {"type": "exec", "command": "sleep 100"}})
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("sleep", 30)):

@@ -705,6 +705,45 @@ def test_command_dispatch_awaits_async_plugin_handler(server):
     assert resp["result"] == {"type": "plugin", "output": "async:hello"}
 
 
+def test_command_dispatch_passes_tui_source_platform_to_plugin_handler(server):
+    def _handler(arg, *, source_platform):
+        return f"{source_platform}:{arg}"
+
+    with patch(
+        "hermes_cli.plugins.get_plugin_command_handler",
+        lambda name: _handler if name == "source-aware" else None,
+    ):
+        resp = server.handle_request({
+            "id": "r-plugin-source",
+            "method": "command.dispatch",
+            "params": {"name": "source-aware", "arg": "hello"},
+        })
+
+    assert "error" not in resp
+    assert resp["result"] == {"type": "plugin", "output": "tui:hello"}
+
+
+def test_slash_exec_passes_tui_source_platform_to_plugin_handler(server):
+    sid = "test-session"
+    server._sessions[sid] = {"session_key": sid}
+
+    def _handler(arg, **context):
+        return f"{context['source_platform']}:{arg}"
+
+    with patch(
+        "hermes_cli.plugins.get_plugin_command_handler",
+        lambda name: _handler if name == "source-aware" else None,
+    ):
+        resp = server.handle_request({
+            "id": "r-slash-source",
+            "method": "slash.exec",
+            "params": {"session_id": sid, "command": "/source-aware hi"},
+        })
+
+    assert "error" not in resp
+    assert resp["result"] == {"output": "tui:hi"}
+
+
 # ── dispatch(): pool routing for long handlers (#12546) ──────────────
 
 

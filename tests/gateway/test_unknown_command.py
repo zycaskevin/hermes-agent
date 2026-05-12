@@ -371,3 +371,40 @@ async def test_command_hook_rewrite_routes_to_plugin(monkeypatch):
     # First emit_collect fires on the original command; after rewrite the
     # dispatcher does NOT re-fire for the new command (one decision per turn).
     assert call_log == ["command:status"]
+
+
+@pytest.mark.asyncio
+async def test_plugin_command_handler_receives_gateway_source_context(monkeypatch):
+    """Gateway plugin slash handlers receive source_platform and source_chat_id."""
+    import gateway.run as gateway_run
+
+    runner = _make_runner()
+    runner._run_agent = AsyncMock(
+        side_effect=AssertionError("plugin command leaked to the agent")
+    )
+
+    captured = {}
+
+    def _handler(raw_args, *, source_platform, source_chat_id):
+        captured["raw_args"] = raw_args
+        captured["source_platform"] = source_platform
+        captured["source_chat_id"] = source_chat_id
+        return "handled"
+
+    monkeypatch.setattr(
+        gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"}
+    )
+    from hermes_cli import plugins as _plugins_mod
+
+    monkeypatch.setattr(
+        _plugins_mod,
+        "get_plugin_command_handler",
+        lambda name: _handler if name == "metricas" else None,
+    )
+
+    result = await runner._handle_message(_make_event("/metricas dias:7"))
+
+    assert result == "handled"
+    assert captured["raw_args"] == "dias:7"
+    assert captured["source_platform"] == "telegram"
+    assert captured["source_chat_id"] == "c1"

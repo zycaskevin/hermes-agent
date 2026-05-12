@@ -6155,7 +6155,14 @@ class GatewayRunner:
                 plugin_handler = get_plugin_command_handler(command.replace("_", "-"))
                 if plugin_handler:
                     user_args = event.get_command_args().strip()
-                    result = plugin_handler(user_args)
+                    try:
+                        result = plugin_handler(
+                            user_args,
+                            source_platform=source.platform.value if source.platform else "gateway",
+                            source_chat_id=source.chat_id,
+                        )
+                    except TypeError:
+                        result = plugin_handler(user_args)
                     if asyncio.iscoroutine(result):
                         result = await result
                     return str(result) if result else None

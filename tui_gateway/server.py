@@ -2,6 +2,7 @@ import atexit
 import concurrent.futures
 import contextvars
 import copy
+import inspect
 import json
 import logging
 import os
@@ -4443,6 +4444,38 @@ def _resolve_name(name: str) -> str:
         return name
 
 
+_PLUGIN_COMMAND_SOURCE_CONTEXT = {"source_platform": "tui"}
+
+
+def _invoke_plugin_command_handler(handler: callable, arg: str) -> Any:
+    """Invoke a plugin slash-command handler with TUI source context.
+
+    Plugin slash commands historically accepted exactly ``handler(raw_args)``.
+    Newer handlers may opt into source-aware behavior by accepting a
+    ``source_platform`` keyword or arbitrary ``**kwargs``.  Inspect first so we
+    don't mask TypeError raised *inside* legacy handlers with a broad fallback.
+    """
+    try:
+        signature = inspect.signature(handler)
+    except (TypeError, ValueError):
+        # Some callable objects/builtins are not introspectable. Prefer the
+        # source-aware call, but preserve compatibility when the callable simply
+        # does not accept keyword context.
+        try:
+            return handler(arg, **_PLUGIN_COMMAND_SOURCE_CONTEXT)
+        except TypeError:
+            return handler(arg)
+
+    parameters = signature.parameters.values()
+    accepts_context = any(
+        p.kind is inspect.Parameter.VAR_KEYWORD or p.name == "source_platform"
+        for p in parameters
+    )
+    if accepts_context:
+        return handler(arg, **_PLUGIN_COMMAND_SOURCE_CONTEXT)
+    return handler(arg)
+
+
 @method("command.dispatch")
 def _(rid, params: dict) -> dict:
     name, arg = params.get("name", "").lstrip("/"), params.get("arg", "")
@@ -4485,7 +4518,9 @@ def _(rid, params: dict) -> dict:
 
         handler = get_plugin_command_handler(name)
         if handler:
-            result = resolve_plugin_command_result(handler(arg))
+            result = resolve_plugin_command_result(
+                _invoke_plugin_command_handler(handler, arg)
+            )
             return _ok(rid, {"type": "plugin", "output": str(result or "")})
     except Exception:
         pass
@@ -5502,7 +5537,9 @@ def _(rid, params: dict) -> dict:
 
     if plugin_handler and resolve_plugin_command_result:
         try:
-            result = resolve_plugin_command_result(plugin_handler(_cmd_arg))
+            result = resolve_plugin_command_result(
+                _invoke_plugin_command_handler(plugin_handler, _cmd_arg)
+            )
             return _ok(rid, {"output": str(result or "(no output)")})
         except Exception as e:
             return _ok(rid, {"output": f"Plugin command error: {e}"})

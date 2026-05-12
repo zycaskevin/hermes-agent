@@ -407,7 +407,10 @@ class PluginContext:
     ) -> None:
         """Register a slash command (e.g. ``/lcm``) available in CLI and gateway sessions.
 
-        The handler signature is ``fn(raw_args: str) -> str | None``.
+        The base handler signature is ``fn(raw_args: str) -> str | None``.
+        Gateway dispatch also supports opt-in source metadata via
+        ``fn(raw_args, *, source_context: dict)`` (or a second positional
+        parameter) while preserving one-argument handlers for CLI/TUI usage.
         It may also be an async callable — the gateway dispatch handles both.
 
         Unlike ``register_cli_command()`` (which creates ``hermes <subcommand>``
