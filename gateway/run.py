@@ -7268,6 +7268,22 @@ class GatewayRunner:
                 "response": (response or "")[:500],
             })
             
+            # Fire plugin on_turn_complete hook — lets plugins inspect
+            # session metrics (message_count, tool_call_count) after
+            # each turn without parsing transcripts.
+            try:
+                from hermes_cli.plugins import invoke_hook as _invoke_hook
+                _invoke_hook("on_turn_complete",
+                    session_id=session_entry.session_id if session_entry else "",
+                    source_platform=source.platform.value if source.platform else "",
+                    source_chat_id=source.chat_id or "",
+                    message_count=getattr(session_entry, "message_count", 0) or 0,
+                    tool_call_count=getattr(session_entry, "tool_call_count", 0) or 0,
+                    model=getattr(session_entry, "model", "") or "",
+                )
+            except Exception:
+                pass  # Non-fatal — plugin hook failure must not break message delivery
+            
             # Check for pending process watchers (check_interval on background processes)
             try:
                 from tools.process_registry import process_registry
