@@ -6155,11 +6155,15 @@ class GatewayRunner:
                 plugin_handler = get_plugin_command_handler(command.replace("_", "-"))
                 if plugin_handler:
                     user_args = event.get_command_args().strip()
+                    # Resolve session_id for doctor/prepare/watch dialogue context
+                    _plugin_session = self.session_store.get_or_create_session(source)
+                    _plugin_session_id = _plugin_session.session_id if _plugin_session else ""
                     try:
                         result = plugin_handler(
                             user_args,
                             source_platform=source.platform.value if source.platform else "gateway",
                             source_chat_id=source.chat_id,
+                            session_id=_plugin_session_id,
                         )
                     except TypeError:
                         result = plugin_handler(user_args)
